@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const session = require('express-session');
+const XLSX = require('xlsx');
 
 const app = express();
 const PORT = 3000;
@@ -319,6 +320,154 @@ function isPreviewable(mimeType) {
     return previewableTypes.includes(mimeType);
 }
 
+// Enhanced JSON parsing with error recovery
+function parseJsonSafely(jsonString) {
+    try {
+        // First try to parse directly
+        return JSON.parse(jsonString);
+    } catch (error) {
+        console.log('Direct parsing failed, trying to clean JSON...');
+        
+        // Try to extract JSON from the string
+        // Remove any content before the first { or [
+        let cleaned = jsonString.replace(/^[^{[]*/, '');
+        
+        // Remove any content after the last } or ]
+        cleaned = cleaned.replace(/[^}\]]*$/, '');
+        
+        // Try to parse the cleaned version
+        try {
+            return JSON.parse(cleaned);
+        } catch (secondError) {
+            console.log('Cleaned parsing failed, trying line by line...');
+            
+            // Try to find valid JSON lines
+            const lines = jsonString.split('\n');
+            const validLines = lines.filter(line => {
+                const trimmed = line.trim();
+                return trimmed.length > 0 && 
+                       (trimmed.startsWith('{') || trimmed.startsWith('[') ||
+                        trimmed.startsWith('"') || /^\d/.test(trimmed) ||
+                        trimmed === 'true' || trimmed === 'false' || trimmed === 'null');
+            });
+            
+            if (validLines.length > 0) {
+                try {
+                    // Try to parse as array of JSON objects
+                    const jsonArray = validLines.map(line => {
+                        try {
+                            return JSON.parse(line.trim());
+                        } catch (e) {
+                            return line.trim();
+                        }
+                    });
+                    return jsonArray;
+                } catch (thirdError) {
+                    // Last resort: return as plain text with error info
+                    return {
+                        error: 'Could not parse as valid JSON',
+                        original_length: jsonString.length,
+                        sample: jsonString.substring(0, 200) + '...',
+                        cleaned_data: validLines.slice(0, 10)
+                    };
+                }
+            }
+            
+            throw new Error(`JSON parsing failed: ${error.message}. Also failed cleaned parsing: ${secondError.message}`);
+        }
+    }
+}
+
+function convertJsonToExcel(data) {
+    try {
+        const workbook = XLSX.utils.book_new();
+        
+        if (Array.isArray(data)) {
+            if (data.length === 0) {
+                // Create empty worksheet with message
+                const worksheet = XLSX.utils.aoa_to_sheet([['No data available']]);
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+            } else {
+                const worksheet = XLSX.utils.json_to_sheet(data);
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+            }
+        } else if (typeof data === 'object' && data !== null) {
+            // Convert object to array of key-value pairs
+            const rows = Object.entries(data).map(([key, value]) => ({
+                Key: key,
+                Value: typeof value === 'object' ? JSON.stringify(value) : value
+            }));
+            const worksheet = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+        } else {
+            // Handle primitive values
+            const worksheet = XLSX.utils.aoa_to_sheet([['Value'], [data]]);
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+        }
+        
+        return workbook;
+    } catch (error) {
+        console.error('Excel conversion error:', error);
+        // Create error worksheet
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet([
+            ['Error during Excel conversion'],
+            ['Message', error.message],
+            ['Please check your JSON file format']
+        ]);
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Error');
+        return workbook;
+    }
+}
+
+function getJsonPreview(data, maxRows = 10) {
+    if (Array.isArray(data)) {
+        return {
+            type: 'array',
+            count: data.length,
+            preview: data.slice(0, maxRows),
+            keys: data.length > 0 && data[0] ? Object.keys(data[0]) : []
+        };
+    } else if (typeof data === 'object' && data !== null) {
+        return {
+            type: 'object',
+            keys: Object.keys(data),
+            preview: data
+        };
+    } else {
+        return {
+            type: 'primitive',
+            value: data
+        };
+    }
+}
+
+function analyzeJsonStructure(data) {
+    const structure = {
+        type: Array.isArray(data) ? 'array' : typeof data,
+        size: Array.isArray(data) ? data.length : 'n/a'
+    };
+    
+    if (Array.isArray(data) && data.length > 0 && data[0]) {
+        structure.sampleKeys = Object.keys(data[0]);
+        structure.sampleTypes = {};
+        
+        const firstItem = data[0];
+        for (const key in firstItem) {
+            structure.sampleTypes[key] = typeof firstItem[key];
+        }
+    } else if (typeof data === 'object' && data !== null) {
+        structure.keys = Object.keys(data);
+        structure.valueTypes = {};
+        
+        for (const key in data) {
+            structure.valueTypes[key] = typeof data[key];
+        }
+    }
+    
+    return structure;
+}
+
 // Authentication Routes
 app.post('/api/register', async (req, res) => {
     try {
@@ -626,6 +775,114 @@ app.get('/api/files/:fileId/info', requireAuth, (req, res) => {
                 uploaded: file.uploaded_at,
                 previewable: isPreviewable(file.mime_type)
             });
+        }
+    );
+});
+
+// JSON to Excel conversion endpoint
+app.get('/api/files/:fileId/parse-json', requireAuth, (req, res) => {
+    const userId = req.session.userId;
+    const fileId = req.params.fileId;
+    
+    console.log(`JSON parse request - User: ${userId}, File: ${fileId}`);
+    
+    db.get(
+        `SELECT file_path, original_name FROM files WHERE id = ? AND user_id = ? AND category = 'json'`,
+        [fileId, userId],
+        (err, file) => {
+            if (err) {
+                console.error('Database error:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            
+            if (!file) {
+                console.error('File not found or not JSON');
+                return res.status(404).json({ error: 'JSON file not found' });
+            }
+
+            console.log('Found file:', file.original_name, 'Path:', file.file_path);
+
+            try {
+                // Check if file exists
+                if (!fs.existsSync(file.file_path)) {
+                    console.error('Physical file not found:', file.file_path);
+                    return res.status(404).json({ error: 'File not found on server' });
+                }
+
+                // Read and parse JSON file with error recovery
+                const jsonData = fs.readFileSync(file.file_path, 'utf8');
+                console.log('File read successfully, size:', jsonData.length);
+                console.log('First 200 chars:', jsonData.substring(0, 200));
+                
+                const parsedData = parseJsonSafely(jsonData);
+                console.log('JSON parsed successfully, type:', typeof parsedData);
+                
+                // Convert to Excel format
+                const workbook = convertJsonToExcel(parsedData);
+                const fileName = path.parse(file.original_name).name + '.xlsx';
+                
+                console.log('Excel conversion successful');
+                
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                
+                const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+                res.send(buffer);
+            } catch (error) {
+                console.error('JSON parsing error:', error);
+                res.status(400).json({ error: 'Failed to parse JSON file: ' + error.message });
+            }
+        }
+    );
+});
+
+// Get JSON preview data
+app.get('/api/files/:fileId/json-preview', requireAuth, (req, res) => {
+    const userId = req.session.userId;
+    const fileId = req.params.fileId;
+    
+    console.log(`JSON preview request - User: ${userId}, File: ${fileId}`);
+    
+    db.get(
+        `SELECT file_path, original_name FROM files WHERE id = ? AND user_id = ? AND category = 'json'`,
+        [fileId, userId],
+        (err, file) => {
+            if (err) {
+                console.error('Database error:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            
+            if (!file) {
+                console.error('File not found or not JSON');
+                return res.status(404).json({ error: 'JSON file not found' });
+            }
+
+            try {
+                // Check if file exists
+                if (!fs.existsSync(file.file_path)) {
+                    console.error('Physical file not found:', file.file_path);
+                    return res.status(404).json({ error: 'File not found on server' });
+                }
+
+                const jsonData = fs.readFileSync(file.file_path, 'utf8');
+                const parsedData = parseJsonSafely(jsonData);
+                
+                console.log('JSON preview generated successfully');
+                
+                // Return preview info
+                res.json({
+                    fileName: file.original_name,
+                    data: getJsonPreview(parsedData),
+                    structure: analyzeJsonStructure(parsedData),
+                    rawSample: jsonData.substring(0, 500) // Include sample for debugging
+                });
+            } catch (error) {
+                console.error('JSON preview error:', error);
+                res.status(400).json({ 
+                    error: 'Failed to parse JSON file: ' + error.message,
+                    rawSample: fs.readFileSync(file.file_path, 'utf8').substring(0, 500)
+                });
+            }
         }
     );
 });
