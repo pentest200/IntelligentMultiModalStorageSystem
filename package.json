@@ -19,9 +19,13 @@
     "file-preview",
     "json-parser",
     "excel-export",
+<<<<<<< HEAD
     "csv-export",
     "minio",
     "cloud-storage"
+=======
+    "csv-export"
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
   ],
   "author": "Your Name",
   "license": "MIT",

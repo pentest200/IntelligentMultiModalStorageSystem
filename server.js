@@ -7,7 +7,10 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const session = require('express-session');
 const XLSX = require('xlsx');
+<<<<<<< HEAD
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, CreateBucketCommand, ListBucketsCommand } = require('@aws-sdk/client-s3');
+=======
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
 
 const app = express();
 const PORT = 3000;
@@ -431,18 +434,37 @@ function isPreviewable(mimeType) {
 // Enhanced JSON parsing with error recovery
 function parseJsonSafely(jsonString) {
     try {
+<<<<<<< HEAD
+=======
+        // First try to parse directly
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
         return JSON.parse(jsonString);
     } catch (error) {
         console.log('Direct parsing failed, trying to clean JSON...');
         
+<<<<<<< HEAD
         let cleaned = jsonString.replace(/^[^{[]*/, '');
         cleaned = cleaned.replace(/[^}\]]*$/, '');
         
+=======
+        // Try to extract JSON from the string
+        // Remove any content before the first { or [
+        let cleaned = jsonString.replace(/^[^{[]*/, '');
+        
+        // Remove any content after the last } or ]
+        cleaned = cleaned.replace(/[^}\]]*$/, '');
+        
+        // Try to parse the cleaned version
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
         try {
             return JSON.parse(cleaned);
         } catch (secondError) {
             console.log('Cleaned parsing failed, trying line by line...');
             
+<<<<<<< HEAD
+=======
+            // Try to find valid JSON lines
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
             const lines = jsonString.split('\n');
             const validLines = lines.filter(line => {
                 const trimmed = line.trim();
@@ -454,6 +476,10 @@ function parseJsonSafely(jsonString) {
             
             if (validLines.length > 0) {
                 try {
+<<<<<<< HEAD
+=======
+                    // Try to parse as array of JSON objects
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                     const jsonArray = validLines.map(line => {
                         try {
                             return JSON.parse(line.trim());
@@ -463,6 +489,10 @@ function parseJsonSafely(jsonString) {
                     });
                     return jsonArray;
                 } catch (thirdError) {
+<<<<<<< HEAD
+=======
+                    // Last resort: return as plain text with error info
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                     return {
                         error: 'Could not parse as valid JSON',
                         original_length: jsonString.length,
@@ -472,7 +502,11 @@ function parseJsonSafely(jsonString) {
                 }
             }
             
+<<<<<<< HEAD
             throw new Error(`JSON parsing failed: ${error.message}`);
+=======
+            throw new Error(`JSON parsing failed: ${error.message}. Also failed cleaned parsing: ${secondError.message}`);
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
         }
     }
 }
@@ -483,6 +517,10 @@ function convertJsonToExcel(data) {
         
         if (Array.isArray(data)) {
             if (data.length === 0) {
+<<<<<<< HEAD
+=======
+                // Create empty worksheet with message
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 const worksheet = XLSX.utils.aoa_to_sheet([['No data available']]);
                 XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
             } else {
@@ -490,6 +528,10 @@ function convertJsonToExcel(data) {
                 XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
             }
         } else if (typeof data === 'object' && data !== null) {
+<<<<<<< HEAD
+=======
+            // Convert object to array of key-value pairs
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
             const rows = Object.entries(data).map(([key, value]) => ({
                 Key: key,
                 Value: typeof value === 'object' ? JSON.stringify(value) : value
@@ -497,6 +539,10 @@ function convertJsonToExcel(data) {
             const worksheet = XLSX.utils.json_to_sheet(rows);
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
         } else {
+<<<<<<< HEAD
+=======
+            // Handle primitive values
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
             const worksheet = XLSX.utils.aoa_to_sheet([['Value'], [data]]);
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
         }
@@ -504,6 +550,10 @@ function convertJsonToExcel(data) {
         return workbook;
     } catch (error) {
         console.error('Excel conversion error:', error);
+<<<<<<< HEAD
+=======
+        // Create error worksheet
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
         const workbook = XLSX.utils.book_new();
         const worksheet = XLSX.utils.aoa_to_sheet([
             ['Error during Excel conversion'],
@@ -882,7 +932,11 @@ app.get('/api/files/:fileId/info', requireAuth, (req, res) => {
 });
 
 // JSON to Excel conversion endpoint
+<<<<<<< HEAD
 app.get('/api/files/:fileId/parse-json', requireAuth, async (req, res) => {
+=======
+app.get('/api/files/:fileId/parse-json', requireAuth, (req, res) => {
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
     const userId = req.session.userId;
     const fileId = req.params.fileId;
     
@@ -891,7 +945,11 @@ app.get('/api/files/:fileId/parse-json', requireAuth, async (req, res) => {
     db.get(
         `SELECT file_path, original_name FROM files WHERE id = ? AND user_id = ? AND category = 'json'`,
         [fileId, userId],
+<<<<<<< HEAD
         async (err, file) => {
+=======
+        (err, file) => {
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
             if (err) {
                 console.error('Database error:', err);
                 return res.status(500).json({ error: 'Database error' });
@@ -902,6 +960,7 @@ app.get('/api/files/:fileId/parse-json', requireAuth, async (req, res) => {
                 return res.status(404).json({ error: 'JSON file not found' });
             }
 
+<<<<<<< HEAD
             try {
                 const exists = await fileExistsInMinIO(file.file_path);
                 if (!exists) {
@@ -917,10 +976,29 @@ app.get('/api/files/:fileId/parse-json', requireAuth, async (req, res) => {
                 const jsonData = Buffer.concat(chunks).toString('utf8');
                 
                 console.log('File read successfully from MinIO, size:', jsonData.length);
+=======
+            console.log('Found file:', file.original_name, 'Path:', file.file_path);
+
+            try {
+                // Check if file exists
+                if (!fs.existsSync(file.file_path)) {
+                    console.error('Physical file not found:', file.file_path);
+                    return res.status(404).json({ error: 'File not found on server' });
+                }
+
+                // Read and parse JSON file with error recovery
+                const jsonData = fs.readFileSync(file.file_path, 'utf8');
+                console.log('File read successfully, size:', jsonData.length);
+                console.log('First 200 chars:', jsonData.substring(0, 200));
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 
                 const parsedData = parseJsonSafely(jsonData);
                 console.log('JSON parsed successfully, type:', typeof parsedData);
                 
+<<<<<<< HEAD
+=======
+                // Convert to Excel format
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 const workbook = convertJsonToExcel(parsedData);
                 const fileName = path.parse(file.original_name).name + '.xlsx';
                 
@@ -940,7 +1018,11 @@ app.get('/api/files/:fileId/parse-json', requireAuth, async (req, res) => {
 });
 
 // Get JSON preview data
+<<<<<<< HEAD
 app.get('/api/files/:fileId/json-preview', requireAuth, async (req, res) => {
+=======
+app.get('/api/files/:fileId/json-preview', requireAuth, (req, res) => {
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
     const userId = req.session.userId;
     const fileId = req.params.fileId;
     
@@ -949,7 +1031,11 @@ app.get('/api/files/:fileId/json-preview', requireAuth, async (req, res) => {
     db.get(
         `SELECT file_path, original_name FROM files WHERE id = ? AND user_id = ? AND category = 'json'`,
         [fileId, userId],
+<<<<<<< HEAD
         async (err, file) => {
+=======
+        (err, file) => {
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
             if (err) {
                 console.error('Database error:', err);
                 return res.status(500).json({ error: 'Database error' });
@@ -961,6 +1047,7 @@ app.get('/api/files/:fileId/json-preview', requireAuth, async (req, res) => {
             }
 
             try {
+<<<<<<< HEAD
                 const exists = await fileExistsInMinIO(file.file_path);
                 if (!exists) {
                     console.error('File not found in MinIO:', file.file_path);
@@ -973,28 +1060,53 @@ app.get('/api/files/:fileId/json-preview', requireAuth, async (req, res) => {
                     chunks.push(chunk);
                 }
                 const jsonData = Buffer.concat(chunks).toString('utf8');
+=======
+                // Check if file exists
+                if (!fs.existsSync(file.file_path)) {
+                    console.error('Physical file not found:', file.file_path);
+                    return res.status(404).json({ error: 'File not found on server' });
+                }
+
+                const jsonData = fs.readFileSync(file.file_path, 'utf8');
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 const parsedData = parseJsonSafely(jsonData);
                 
                 console.log('JSON preview generated successfully');
                 
+<<<<<<< HEAD
+=======
+                // Return preview info
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 res.json({
                     fileName: file.original_name,
                     data: getJsonPreview(parsedData),
                     structure: analyzeJsonStructure(parsedData),
+<<<<<<< HEAD
                     rawSample: jsonData.substring(0, 500)
+=======
+                    rawSample: jsonData.substring(0, 500) // Include sample for debugging
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 });
             } catch (error) {
                 console.error('JSON preview error:', error);
                 res.status(400).json({ 
                     error: 'Failed to parse JSON file: ' + error.message,
+<<<<<<< HEAD
                     rawSample: 'Unable to load file sample'
+=======
+                    rawSample: fs.readFileSync(file.file_path, 'utf8').substring(0, 500)
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
                 });
             }
         }
     );
 });
 
+<<<<<<< HEAD
 app.delete('/api/files/:fileId', requireAuth, async (req, res) => {
+=======
+app.delete('/api/files/:fileId', requireAuth, (req, res) => {
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
     const userId = req.session.userId;
     const fileId = req.params.fileId;
     
@@ -1113,6 +1225,7 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
 });
 
+<<<<<<< HEAD
 // Initialize and start server
 initializeBucket().then((minioConnected) => {
     if (!minioConnected) {
@@ -1138,3 +1251,11 @@ initializeBucket().then((minioConnected) => {
 }).catch(error => {
     console.error('❌ Failed to initialize application:', error);
 });
+=======
+app.listen(PORT, () => {
+    console.log(`🚀 Multi-user File Organizer Server running on http://localhost:${PORT}`);
+    console.log(`📁 User storage located in: ${baseDir}`);
+    console.log(`📊 Database: file-organizer.db`);
+    console.log(`👤 Default admin: username="admin", password="admin123"`);
+});
+>>>>>>> de04a55fbbee5ce77c3ed413b94725fd028d5558
