@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FileVault - Secure File Organizer</title>
+    <link rel="icon" type="image/png" href="logo.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -661,6 +662,28 @@
             box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.2);
         }
 
+        /* JSON Preview Styles */
+        .json-preview {
+            margin-bottom: 20px;
+        }
+
+        .json-structure {
+            font-size: 14px;
+        }
+
+        .json-structure ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+
+        .json-structure li {
+            margin: 2px 0;
+        }
+
+        .data-types {
+            margin-top: 10px;
+        }
+
         /* Responsive */
         @media (max-width: 992px) {
             .sidebar {
@@ -1122,6 +1145,7 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="closePreview">Close</button>
                 <button class="btn btn-primary" id="downloadPreview">Download</button>
+                <button class="btn btn-success hidden" id="exportExcel">Export to Excel</button>
                 <button class="btn btn-danger" id="deletePreview">Delete</button>
             </div>
         </div>
@@ -1185,6 +1209,7 @@
                 document.getElementById('closePreview').addEventListener('click', () => this.closePreviewModal());
                 document.getElementById('downloadPreview').addEventListener('click', () => this.downloadCurrentFile());
                 document.getElementById('deletePreview').addEventListener('click', () => this.deleteCurrentFile());
+                document.getElementById('exportExcel').addEventListener('click', () => this.exportJsonToExcel());
 
                 // Close modals when clicking outside
                 document.getElementById('uploadModal').addEventListener('click', (e) => {
@@ -1626,7 +1651,7 @@
                     'image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp', 'image/svg+xml',
                     'video/mp4', 'video/avi', 'video/quicktime', 'video/webm', 'video/x-matroska',
                     'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/flac', 'audio/x-m4a',
-                    'application/pdf'
+                    'application/pdf', 'application/json'
                 ];
                 return previewableTypes.includes(mimeType);
             }
@@ -1651,6 +1676,10 @@
                     
                     document.getElementById('previewModal').classList.add('active');
 
+                    // Show/hide export button based on file type
+                    const isJsonFile = file.mimeType === 'application/json';
+                    document.getElementById('exportExcel').classList.toggle('hidden', !isJsonFile);
+
                     // Get file info for details
                     const infoResponse = await fetch(`/api/files/${file.id}/info`);
                     if (!infoResponse.ok) {
@@ -1658,7 +1687,6 @@
                     }
                     const fileInfo = await infoResponse.json();
 
-                    // Create preview based on file type
                     let previewHtml = '';
                     
                     if (file.mimeType.startsWith('image/')) {
@@ -1691,6 +1719,15 @@
                                 <iframe src="/api/files/${file.id}/preview" style="width: 100%; height: 500px; border: none; border-radius: 5px;"></iframe>
                             </div>
                         `;
+                    } else if (file.mimeType === 'application/json') {
+                        // Load JSON preview data
+                        const jsonPreviewResponse = await fetch(`/api/files/${file.id}/json-preview`);
+                        if (jsonPreviewResponse.ok) {
+                            const jsonData = await jsonPreviewResponse.json();
+                            previewHtml = this.createJsonPreviewHtml(jsonData);
+                        } else {
+                            throw new Error('Failed to load JSON preview');
+                        }
                     }
 
                     // Add file details
@@ -1733,6 +1770,55 @@
                 }
             }
 
+            createJsonPreviewHtml(jsonData) {
+                let html = `
+                    <div class="json-preview">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">JSON Structure</div>
+                            </div>
+                            <div class="card-body">
+                                <div class="json-structure">
+                `;
+
+                if (jsonData.structure.type === 'array') {
+                    html += `
+                        <p><strong>Type:</strong> Array with ${jsonData.structure.size} items</p>
+                        <p><strong>Keys:</strong> ${jsonData.structure.sampleKeys.join(', ')}</p>
+                        <div class="data-types">
+                            <strong>Data Types:</strong>
+                            <ul>
+                    `;
+                    for (const [key, type] of Object.entries(jsonData.structure.sampleTypes)) {
+                        html += `<li><code>${key}</code>: ${type}</li>`;
+                    }
+                    html += `</ul></div>`;
+                } else if (jsonData.structure.type === 'object') {
+                    html += `
+                        <p><strong>Type:</strong> Object</p>
+                        <p><strong>Keys:</strong> ${jsonData.structure.keys.join(', ')}</p>
+                    `;
+                }
+
+                html += `
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card mt-20">
+                            <div class="card-header">
+                                <div class="card-title">Data Preview</div>
+                            </div>
+                            <div class="card-body">
+                                <pre style="max-height: 300px; overflow: auto; background: #f8f9fa; padding: 15px; border-radius: 5px;"><code>${this.escapeHtml(JSON.stringify(jsonData.data.preview, null, 2))}</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                return html;
+            }
+
             closePreviewModal() {
                 document.getElementById('previewModal').classList.remove('active');
                 this.currentPreviewFile = null;
@@ -1767,6 +1853,42 @@
                     this.showToast('Download started!', 'success');
                 } catch (error) {
                     this.showToast('Download failed: ' + error.message, 'error');
+                }
+            }
+
+            async exportJsonToExcel() {
+                if (!this.currentPreviewFile) return;
+                
+                try {
+                    this.showToast('Converting to Excel...', 'info');
+                    
+                    const response = await fetch(`/api/files/${this.currentPreviewFile.id}/parse-json`);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                        throw new Error(errorData.error || `Export failed with status: ${response.status}`);
+                    }
+
+                    const blob = await response.blob();
+                    
+                    if (blob.size === 0) {
+                        throw new Error('Export resulted in empty file');
+                    }
+                    
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `${this.currentPreviewFile.displayName.replace('.json', '')}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+
+                    this.showToast('Excel file exported successfully!', 'success');
+                } catch (error) {
+                    console.error('Export error:', error);
+                    this.showToast('Export failed: ' + error.message, 'error');
                 }
             }
 
